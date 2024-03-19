@@ -1,14 +1,16 @@
 import { useState, useRef, useEffect } from 'react';
-import { StyleSheet, Text, View, Image } from 'react-native';
+import { Modal, StyleSheet, Text, View, Image, TouchableOpacity } from 'react-native';
 import MapView , {Marker} from 'react-native-maps'
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location'
-import { uploadImageToStorage, saveMarker, fetchMarkers } from './firebase/useFirebase';
+import { saveMarker, fetchMarkers, uploadImage } from './firebase/useFirebase'; // Antager denne funktion er implementeret } from './firebase/useFirebase';
 
 
 export default function App() {
   const [markers, setMarkers] = useState([])
-  const [imagePaths, setImagePaths] = useState([])
+  const [selectedImage, setSelectedImage] = useState(null);
+  const [modalVisible, setModalVisible] = useState(false);
+  
 
   const [region, setRegion] = useState({
     latitude:55,
@@ -17,59 +19,63 @@ export default function App() {
     longitudeDelta: 20,
   })
 
-  
   useEffect(() => {
     const getMarkers = async () => {
-      const fetchedMarkers = await fetchMarkers();
-      
-      const markersToDisplay = fetchedMarkers.map(marker => ({
-        coordinate: {
-          latitude: marker.latitude,
-          longitude: marker.longitude
-        },
-        key: marker.id, 
-        title: marker.title
-        
-      }));
-      setMarkers(markersToDisplay);
+      try {
+        const fetchedMarkers = await fetchMarkers();
+        const markersToDisplay = fetchedMarkers.map(marker => ({
+          coordinate: {
+            latitude: marker.latitude,
+            longitude: marker.longitude,
+            
+          },
+          key: marker.id, 
+          imageUrl: marker.imageUrl
+           
+          
+        }));
+        setMarkers(markersToDisplay); 
+      } catch (error) {
+        console.error("Fejl ved hentning af markører:", error);
+      }
     };
   
     getMarkers();
-  }, []); 
+  }, []);
   
 
   async function addMarker(data) {
     const { latitude, longitude } = data.nativeEvent.coordinate;
-    
-    const imageUri = await pickImage(); // Antager at pickImage returnerer en URI for det valgte billede
-    const imageUrl = await uploadImageToStorage(imageUri, `marker_images/${Date.now()}`);
-    
-    const newMarker = {
-      latitude, 
-      longitude,
-      imageUrl, // Tilføj URL'en fra det uploadede billede
-      title: 'Good place?',
-    };
-    
-    await saveMarker(newMarker); // Gem markøren med billed-URL
-    
-    setMarkers(prevMarkers => [...prevMarkers, { ...newMarker, key: Date.now().toString() }]);
-  }
   
-  async function pickImage() {
-    let result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      quality: 1,
-    });
-  
-    if (!result.canceled) {
-      return result.uri; // Returnerer URI'en for det valgte billede
+    // Anmod om medietilladelse
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      alert('Beklager, vi har brug for medietilladelser for at gøre dette!');
+      return;
     }
-    return null;
+  
+    // Brugeren vælger et billede
+    const result = await ImagePicker.launchImageLibraryAsync({
+      allowsEditing: true
+    
+    });
+
+   
+  
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      const imageUri = result.assets[0].uri;
+      console.log(imageUri);
+      const fileName = `markers/${Date.now()}.jpg`;
+      try {
+        const imageUrl = await uploadImage(imageUri, fileName);
+        const markerId = await saveMarker({ latitude, longitude, imageUrl });
+        setMarkers(prevMarkers => [...prevMarkers, { coordinate: { latitude, longitude }, key: markerId, imageUrl }]);
+      } catch (error) {
+        console.error("Fejl ved tilføjelse af markør og billede:", error);
+        // Håndter fejlen, vis en besked til brugeren, osv.
+      }
+    }
   }
-  
-  
   
 
   return (
@@ -84,12 +90,32 @@ export default function App() {
           <Marker
             coordinate={marker.coordinate}
             key={marker.key}
-            title={marker.title}
-
-            
+            onPress={() => {
+              setSelectedImage(marker.imageUrl);
+              setModalVisible(true);
+            }}
           />
         ))}
       </MapView>
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={modalVisible}
+        onRequestClose={() => {
+          setModalVisible(!modalVisible);
+        }}>
+        <View style={styles.centeredView}>
+          <View style={styles.modalView}>
+            <TouchableOpacity
+              style={[styles.button, styles.buttonClose]}
+              onPress={() => setModalVisible(!modalVisible)}>
+              <Text style={styles.textStyle}>Luk</Text>
+            </TouchableOpacity>
+            {selectedImage && <Image source={{ uri: selectedImage }} style={{ width: 300, height: 300 }} />}
+          </View>
+        </View>
+      </Modal>
+
     </View>
   );
 }
@@ -98,5 +124,39 @@ const styles = StyleSheet.create({
   map: {
     width: '100%',
     height: '100%'
+  },
+  centeredView: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    marginTop: 22
+  },
+  modalView: {
+    margin: 20,
+    backgroundColor: "white",
+    borderRadius: 20,
+    padding: 35,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5
+  },
+  button: {
+    borderRadius: 20,
+    padding: 10,
+    elevation: 2
+  },
+  buttonClose: {
+    backgroundColor: "#2196F3",
+  },
+  textStyle: {
+    color: "white",
+    fontWeight: "bold",
+    textAlign: "center"
   }
 });

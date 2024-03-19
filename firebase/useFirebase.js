@@ -3,44 +3,15 @@ import { collection, addDoc, getDocs } from 'firebase/firestore';
 import { storage, database } from './firebase';
 
 
-
-
-export const uploadImageToStorage = async (imagePath, fileName) => {
-    if (!imagePath) {
-      console.log("No image path provided");
-      return null;
-    }
-
-    try {
-      const res = await fetch(imagePath);
-      const blob = await res.blob();
-      const storageRef = ref(storage, fileName);
-      await uploadBytes(storageRef, blob);
-      const downloadUrl = await getDownloadURL(storageRef);
-      return downloadUrl;
-    } catch (error) {
-      console.error("Upload failed: ", error);
-      return null;
-    }
-};
-  
-
-  export const saveMarker = async (markerData) => {
-    try {
-        // Da latitude og longitude nu er direkte egenskaber af markerData,
-        // er der ikke længere brug for at udpakke dem fra en coordinate nøgle.
-        const { latitude, longitude, title, imageUrl } = markerData;
-
-        const docRef = await addDoc(collection(database, "markers"), {
-            latitude,
-            longitude,
-            title,
-            imageUrl, // Sørg for at denne er inkluderet, hvis du tilføjer billeder
-        });
-        console.log("Document written with ID: ", docRef.id);
-    } catch (e) {
-        console.error("Error adding document: ", e);
-    }
+export const saveMarker = async (markerData) => {
+  try {
+    const docRef = await addDoc(collection(database, "markers"), markerData);
+    console.log("Document written with ID: ", docRef.id);
+    return docRef.id; // Returner det unikke id genereret af Firebase
+  } catch (e) {
+    console.error("Error adding document: ", e);
+    throw e; // Re-throw fejlen for at håndtere den i `addMarker`
+  }
 };
 
 
@@ -53,5 +24,25 @@ export const fetchMarkers = async () => {
     return markers;
 };
 
+
+export const uploadImage = async (imagePath, fileName) => {
+  if (imagePath) {
+    const res = await fetch(imagePath);
+    const blob = await res.blob();
+    const storageRef = ref(storage, fileName);
+    try {
+      await uploadBytes(storageRef, blob);
+      const downloadUrl = await getDownloadURL(storageRef);
+      console.log("Image uploaded:", downloadUrl);
+      return downloadUrl;
+    } catch (error) {
+      console.error("Upload failed", error);
+      throw error;
+    }
+  } else {
+    console.log("No image selected");
+    return null;
+  }
+};
 
 
